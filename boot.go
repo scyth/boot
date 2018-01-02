@@ -80,6 +80,7 @@ func (bm *BootManager) Run(abortCh <-chan bool) <-chan bool {
 	bm.doneCh = make(chan bool, 0)
 	go func() {
 		for _, svc := range bm.services.byStartPriority() {
+			log.Printf("boot() starting service '%s'", svc.name)
 			svc.service.BootStart(svc.id, bm.appConfig, bm.errCh)
 			svc.running = true
 		}
