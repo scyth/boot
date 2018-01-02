@@ -18,27 +18,27 @@ const (
 )
 
 type Service interface {
-	BootStart(id BootId, appCfg interface{}, bootErrCh chan<- BootErr)
+	BootStart(id Id, appCfg interface{}, bootErrCh chan<- Err)
 	BootStop(wg *sync.WaitGroup) // call wg.Done() after exit
 	BootClearState()             // in case of restart, this method will be called to cleanup the state
 }
 
-type BootId int
+type Id int
 
-func (id BootId) String() string {
+func (id Id) String() string {
 	return strconv.FormatUint(uint64(id), 10)
 }
 
-type BootErr struct {
-	Id  BootId
+type Err struct {
+	Id  Id
 	Err error
 }
 
-func (be BootErr) String() string {
+func (be Err) String() string {
 	return fmt.Sprintf("bootErr, svc(%d): %s", be.Id, be.Err.Error())
 }
 
-func (be BootErr) Error() string {
+func (be Err) Error() string {
 	return be.String()
 }
 
@@ -47,7 +47,7 @@ func NewBootManager(appConfig interface{}) *BootManager {
 		appConfig:    appConfig,
 		services:     make(serviceList, 0),
 		servicesById: make(serviceMap),
-		errCh:        make(chan BootErr, 0),
+		errCh:        make(chan Err, 0),
 	}
 }
 
@@ -56,7 +56,7 @@ type BootManager struct {
 	appConfig    interface{}
 	services     serviceList
 	servicesById serviceMap
-	errCh        chan BootErr
+	errCh        chan Err
 	abortCh      <-chan bool
 	doneCh       chan bool
 }
@@ -65,7 +65,7 @@ func (bm *BootManager) Add(svc Service, name string, startPriority int, stopPrio
 
 	id := atomic.AddUint64(&bm.svcCounter, 1)
 	item := &serviceItem{
-		id:            BootId(id),
+		id:            Id(id),
 		name:          name,
 		service:       svc,
 		startPriority: startPriority,
@@ -73,11 +73,12 @@ func (bm *BootManager) Add(svc Service, name string, startPriority int, stopPrio
 		restartPolicy: restartPolicy,
 	}
 	bm.services = append(bm.services, item)
-	bm.servicesById[BootId(id)] = item
+	bm.servicesById[Id(id)] = item
 }
 
 func (bm *BootManager) Run(abortCh <-chan bool) <-chan bool {
 	bm.doneCh = make(chan bool, 0)
+	bm.abortCh = abortCh
 	go func() {
 		for _, svc := range bm.services.byStartPriority() {
 			log.Printf("boot() starting service '%s'", svc.name)
@@ -85,7 +86,7 @@ func (bm *BootManager) Run(abortCh <-chan bool) <-chan bool {
 			svc.running = true
 		}
 
-		var e BootErr
+		var e Err
 	L:
 		for {
 			select {
@@ -132,6 +133,7 @@ func (bm *BootManager) Run(abortCh <-chan bool) <-chan bool {
 				}
 			case <-bm.abortCh:
 				// user requested abort, lets stop all services
+				log.Printf("boot() - receved abort request, stopping all services")
 				bm.stopServices(nil)
 				break L
 			}
@@ -174,7 +176,7 @@ func (bm *BootManager) stopUpperChain(svc *serviceItem) serviceList {
 }
 
 type serviceItem struct {
-	id                BootId
+	id                Id
 	name              string
 	service           Service
 	startPriority     int
@@ -199,4 +201,4 @@ func (sl serviceList) byStopPriority() serviceList {
 	return result
 }
 
-type serviceMap map[BootId]*serviceItem
+type serviceMap map[Id]*serviceItem
